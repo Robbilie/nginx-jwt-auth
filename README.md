@@ -3,7 +3,6 @@ This project implements a simple JWT validation endpoint meant to be used with N
 
 It validates a JWT token passed in the `Authorization` header against a configured public key, and further validates that the JWT contains appropriate claims.
 
-
 ## Based on
 
 - https://github.com/carlpett/nginx-subrequest-auth-jwt
@@ -19,6 +18,7 @@ There are currently 2 environment variables, JWKS_URL and PORT. Everything else 
 In query string mode, the allowed claims are passed via query string parameters to the /validate endpoint. For example, with `/validate?claims_group=developers&claims_group=administrators&claims_location=hq`, the token claims must **both** have a `group` claim of **either** `developers` or `administrators`, **and** a `location` claim of `hq`.
 
 Each claim must be prefixed with `claims_`. Giving the same claim multiple time results in any value being accepted.
+Claims prefixed with `claims_regexp_` can have regexes, their compiled versions are cached for performance reasons.
 
 In this mode, in contrast to static mode, only a single set of acceptable claims can be passed at a time (but different NGINX server blocks can pass different sets).
 
