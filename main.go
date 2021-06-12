@@ -2,15 +2,15 @@ package main
 
 import (
 	"fmt"
-    "os"
-    "time"
+	"os"
+	"time"
 	"log"
 	"net/http"
 	"strings"
 	"encoding/json"
 	"regexp"
 
-    "github.com/robbilie/nginx-jwt-auth/logger"
+	"github.com/robbilie/nginx-jwt-auth/logger"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -27,8 +27,8 @@ var (
 		Help: "Total number of http requests handled",
 	}, []string{"status"})
 	validationTime = prometheus.NewHistogram(prometheus.HistogramOpts{
-		Name:    "nginx_subrequest_auth_jwt_token_validation_time_seconds",
-		Help:    "Number of seconds spent validating token",
+		Name:	"nginx_subrequest_auth_jwt_token_validation_time_seconds",
+		Help:	"Number of seconds spent validating token",
 		Buckets: prometheus.ExponentialBuckets(100*time.Nanosecond.Seconds(), 3, 6),
 	})
 )
@@ -75,7 +75,7 @@ func main() {
 
 type server struct {	
 	Jwks 				keyfunc.JWKs
-	Logger       		logger.Logger
+	Logger	   		logger.Logger
 }
 
 func newServer(logger logger.Logger, jwksUrl string) (*server, error) {
