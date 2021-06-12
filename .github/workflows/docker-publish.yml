@@ -1,30 +1,45 @@
-name: image
+name: Docker
+
 on:
   push:
+    # Publish `master` as Docker `latest` image.
     branches:
-      - 'master'
+      - master
+
+    # Publish `v1.2.3` tags as releases.
+    tags:
+      - v*
+
+env:
+  IMAGE_NAME: default
+
 jobs:
   push:
+
     runs-on: ubuntu-latest
+    if: github.event_name == 'push'
+
     steps:
-      - name: Checkout
-        uses: actions/checkout@v2
+      - uses: actions/checkout@v2
 
-      - name: Unshallow
-        run: git fetch --prune --unshallow
+      - name: Build image
+        run: docker build . --file Dockerfile --tag $IMAGE_NAME --cache-from ghcr.io/${{ github.repository }}:latest
 
-      - name: Set up Go
-        uses: actions/setup-go@v2
-        with:
-          go-version: 1.14
+      - name: Log into registry
+        run: echo "${{ secrets.CR_PAT }}" | docker login ghcr.io -u $GITHUB_ACTOR --password-stdin
 
-      - name: login to GitHub Container Registry
-        run: echo ${{ secrets.CR_PAT }} | docker login ghcr.io -u ${{ github.repository_owner }} --password-stdin
-
-      - name: publish
+      - name: Push image
         run: |
-          GIT_VERSION=$(git describe --always --tags)
-          IMAGE_TAG?=$(GIT_VERSION)
-          docker build --file Dockerfile --progress plane --tag ghcr.io/${{ github.repository }}:$(IMAGE_TAG) --cache-from ghcr.io/${{ github.repository }}:latest .
-          docker build --file Dockerfile --progress plane --push --tag ghcr.io/${{ github.repository }} --cache-from ghcr.io/${{ github.repository }}:latest .
-          docker build --file Dockerfile --progress plane --push --tag ghcr.io/${{ github.repository }} --cache-from ghcr.io/${{ github.repository }}:$(IMAGE_TAG) .
+          IMAGE_ID=ghcr.io/${{ github.repository }}
+          # Change all uppercase to lowercase
+          IMAGE_ID=$(echo $IMAGE_ID | tr '[A-Z]' '[a-z]')
+          # Strip git ref prefix from version
+          VERSION=$(echo "${{ github.ref }}" | sed -e 's,.*/\(.*\),\1,')
+          # Strip "v" prefix from tag name
+          [[ "${{ github.ref }}" == "refs/tags/"* ]] && VERSION=$(echo $VERSION | sed -e 's/^v//')
+          # Use Docker `latest` tag convention
+          [ "$VERSION" == "master" ] && VERSION=latest
+          echo IMAGE_ID=$IMAGE_ID
+          echo VERSION=$VERSION
+          docker tag $IMAGE_NAME $IMAGE_ID:$VERSION
+          docker push $IMAGE_ID:$VERSION
