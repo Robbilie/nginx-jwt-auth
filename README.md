@@ -54,5 +54,5 @@ this will be directly encoded. If the claim is an array of strings,
 this will first be json encoded, then base64 encoded.
 
 Response headers can also be configured via the query. Use a query
-parameter of the form `responses_foo=bar` to encode claims "bar"
+parameter of the form `headers_foo=bar` to encode claims "bar"
 in response header "foo".
