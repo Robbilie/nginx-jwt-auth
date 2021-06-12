@@ -21,16 +21,10 @@ jobs:
       - name: login to GitHub Container Registry
         run: echo ${{ secrets.CR_PAT }} | docker login ghcr.io -u ${{ github.repository_owner }} --password-stdin
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v1
-        id: buildx
-        with:
-          install: true
-
       - name: publish
         run: |
-          export GIT_VERSION=$(git describe --always --tags)
-          export IMAGE_TAG?=$(GIT_VERSION)
+          GIT_VERSION=$(git describe --always --tags)
+          IMAGE_TAG?=$(GIT_VERSION)
           docker build --file Dockerfile --progress plane --tag ghcr.io/${{ github.repository }}:$(IMAGE_TAG) --cache-from ghcr.io/${{ github.repository }}:latest .
           docker build --file Dockerfile --progress plane --push --tag ghcr.io/${{ github.repository }} --cache-from ghcr.io/${{ github.repository }}:latest .
           docker build --file Dockerfile --progress plane --push --tag ghcr.io/${{ github.repository }} --cache-from ghcr.io/${{ github.repository }}:$(IMAGE_TAG) .
