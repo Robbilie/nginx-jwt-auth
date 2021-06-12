@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"strings"
 	"encoding/json"
-	"regexp"
 
 	"github.com/robbilie/nginx-jwt-auth/logger"
 
@@ -17,7 +16,7 @@ import (
 	"github.com/MicahParks/keyfunc"
 	"github.com/dgrijalva/jwt-go"
 	"github.com/dgrijalva/jwt-go/request"
-
+	"github.com/umisama/go-regexpcache"
 )
 
 
@@ -208,7 +207,12 @@ func (s *server) queryStringClaimValidator(claims jwt.MapClaims, r *http.Request
 			claimName := strings.TrimPrefix(claimNameQ, "claims_")
 			s.Logger.Debugw("CLAIM", "claim", claimName, "vv", validPatterns,
 				"qd", validClaims)
-			if !s.checkClaim(claimName, validPatterns, claims) {
+			isRegExp := false
+			if strings.HasPrefix(claimName, "regexp_") {
+				claimName = strings.TrimPrefix(claimName, "regexp_")
+				isRegExp = true
+			}
+			if !s.checkClaim(claimName, validPatterns, claims, isRegExp) {
 				s.Logger.Debugw("Token claims did not match required values", "validClaims", validClaims, "actualClaims", claims)
 				return false
 			}
@@ -218,7 +222,7 @@ func (s *server) queryStringClaimValidator(claims jwt.MapClaims, r *http.Request
 }
 
 func (s *server) checkClaim(
-	claimName string, validPatterns []string, claims jwt.MapClaims,
+	claimName string, validPatterns []string, claims jwt.MapClaims, isRegExp bool,
 ) bool {
 	passedValidation := true
 
@@ -226,7 +230,7 @@ func (s *server) checkClaim(
 
 	switch claimVal := claimObj.(type) {
 		case string:
-			if !contains(validPatterns, claimVal) {
+			if !contains(validPatterns, claimVal, isRegExp) {
 					passedValidation = false
 			}
 		case []interface{}:
@@ -244,7 +248,7 @@ func (s *server) checkClaim(
 				passedValidation = false
 				out:
 				for _,actualClaim := range actualClaims{
-					if  contains( []string{validPattern}, actualClaim) {
+					if  contains( []string{validPattern}, actualClaim, isRegExp) {
 						passedValidation = true
 						break out;
 					}
@@ -298,13 +302,17 @@ func (s *server) writeResponseHeaders(
 	}
 }
 
-func contains(haystack []string, needle string) bool {
+func contains(haystack []string, needle string, isRegExp bool) bool {
 	for _, validPattern := range haystack {
-		matched,err := regexp.MatchString(validPattern, needle)
-		if err != nil {
-			fmt.Errorf("unable to compile pattern %v to match claim %v , error %v\n", validPattern,needle,err)
-		}
-		if matched {
+		if isRegExp == true {
+			matched, err := regexpcache.MatchString(validPattern, needle)
+			if err != nil {
+				fmt.Errorf("unable to compile pattern %v to match claim %v , error %v\n", validPattern,needle,err)
+			}
+			if matched {
+				return true
+			}
+		} else if validPattern == needle {
 			return true
 		}
 	}
