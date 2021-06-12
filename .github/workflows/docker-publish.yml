@@ -29,8 +29,8 @@ jobs:
 
       - name: publish
         run: |
-          GIT_VERSION=$(git describe --always --tags)
-          IMAGE_TAG?=$(GIT_VERSION)
+          export GIT_VERSION=$(git describe --always --tags)
+          export IMAGE_TAG?=$(GIT_VERSION)
           docker build --file Dockerfile --progress plane --tag ghcr.io/${{ github.repository }}:$(IMAGE_TAG) --cache-from ghcr.io/${{ github.repository }}:latest .
           docker build --file Dockerfile --progress plane --push --tag ghcr.io/${{ github.repository }} --cache-from ghcr.io/${{ github.repository }}:latest .
           docker build --file Dockerfile --progress plane --push --tag ghcr.io/${{ github.repository }} --cache-from ghcr.io/${{ github.repository }}:$(IMAGE_TAG) .
