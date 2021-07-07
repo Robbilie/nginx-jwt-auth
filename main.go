@@ -47,6 +47,12 @@ func init() {
 func main() {
 	logger := logger.NewLogger(getenv("LOG_LEVEL", "info")) // "debug", "info", "warn", "error", "fatal"
 
+	insecureSkipVerify := getenv("INSECURE_SKIP_VERIFY", "false")
+	if (insecureSkipVerify == "true") {
+    	http.DefaultTransport.(*http.Transport).TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
+    }
+
+
 	jwksUrl := getenv("JWKS_URL", "error")
 	if (jwksUrl == "error") {
 		logger.Fatalw("no JWKS_URL")
