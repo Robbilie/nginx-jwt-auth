@@ -50,8 +50,8 @@ func main() {
 
 	insecureSkipVerify := getenv("INSECURE_SKIP_VERIFY", "false")
 	if (insecureSkipVerify == "true") {
-    	http.DefaultTransport.(*http.Transport).TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
-    }
+		http.DefaultTransport.(*http.Transport).TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
+	}
 
 
 	jwksUrl := getenv("JWKS_URL", "error")
@@ -204,7 +204,7 @@ func (s *server) queryStringClaimValidator(claims jwt.MapClaims, r *http.Request
 		}
 	}
 	if len(validClaims) == 0 || !hasClaimsPrefixedKey {
-		s.Logger.Warnw("No claims requirements sent, rejecting", "queryParams", validClaims)
+		s.Logger.Warnw("No claims requirements set, rejecting", "queryParams", validClaims)
 		return false
 	}
 	s.Logger.Debugw("Validating claims from query string", "validClaims", validClaims)
