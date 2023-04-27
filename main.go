@@ -1,25 +1,25 @@
 package main
 
 import (
+	"crypto/tls"
+	"encoding/json"
 	"fmt"
-	"os"
-	"time"
 	"log"
 	"net/http"
-	"crypto/tls"
+	"os"
 	"strings"
-	"encoding/json"
+	"time"
 
 	"github.com/robbilie/nginx-jwt-auth/logger"
 
+	"github.com/MicahParks/keyfunc"
+	"github.com/golang-jwt/jwt/v4"
+	"github.com/golang-jwt/jwt/v4/request"
+
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
-	"github.com/MicahParks/keyfunc"
-	"github.com/dgrijalva/jwt-go"
-	"github.com/dgrijalva/jwt-go/request"
 	"github.com/umisama/go-regexpcache"
 )
-
 
 var (
 	requestsTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
@@ -27,8 +27,8 @@ var (
 		Help: "Total number of http requests handled",
 	}, []string{"status"})
 	validationTime = prometheus.NewHistogram(prometheus.HistogramOpts{
-		Name:	"nginx_subrequest_auth_jwt_token_validation_time_seconds",
-		Help:	"Number of seconds spent validating token",
+		Name:    "nginx_subrequest_auth_jwt_token_validation_time_seconds",
+		Help:    "Number of seconds spent validating token",
 		Buckets: prometheus.ExponentialBuckets(100*time.Nanosecond.Seconds(), 3, 6),
 	})
 )
@@ -49,15 +49,14 @@ func main() {
 	logger := logger.NewLogger(getenv("LOG_LEVEL", "info")) // "debug", "info", "warn", "error", "fatal"
 
 	insecureSkipVerify := getenv("INSECURE_SKIP_VERIFY", "false")
-	if (insecureSkipVerify == "true") {
+	if insecureSkipVerify == "true" {
 		http.DefaultTransport.(*http.Transport).TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
 	}
 
-
 	jwksUrl := getenv("JWKS_URL", "error")
-	if (jwksUrl == "error") {
+	if jwksUrl == "error" {
 		logger.Fatalw("no JWKS_URL")
-		return;
+		return
 	}
 
 	server, err := newServer(logger, jwksUrl)
@@ -79,32 +78,31 @@ func main() {
 	}
 }
 
-type server struct {	
-	Jwks 				keyfunc.JWKs
-	Logger	   		logger.Logger
+type server struct {
+	Jwks   keyfunc.MultipleJWKS
+	Logger logger.Logger
 }
 
 func newServer(logger logger.Logger, jwksUrl string) (*server, error) {
-
-	// Create the keyfunc options. Refresh the JWKS every hour and log errors.
-	refreshInterval := time.Hour
-	options := keyfunc.Options{
-		RefreshInterval: &refreshInterval,
-		RefreshErrorHandler: func(err error) {
-			log.Printf("There was an error with the jwt.KeyFunc\nError: %s", err.Error())
-		},
+	m := map[string]keyfunc.Options{}
+	s := strings.Split(jwksUrl, ",")
+	for _, url := range s {
+		m[url] = keyfunc.Options{
+			RefreshInterval: time.Hour,
+			RefreshErrorHandler: func(err error) {
+				log.Printf("There was an error with the jwt.KeyFunc\nError: %s", err.Error())
+			},
+		}
 	}
-	// Create the JWKS from the resource at the given URL.
-	// jwks will be refreshed according to time interval set in options
-	jwks, err := keyfunc.Get(jwksUrl, options)
+	jwks, err := keyfunc.GetMultiple(m, keyfunc.MultipleOptions{})
 	if err != nil {
 
 		return nil, fmt.Errorf("failed to create JWKS from resource at the given URL.\nError: %s", err.Error())
 	}
 
 	return &server{
-		Jwks: 		*jwks,
-		Logger: 	logger,
+		Jwks:   *jwks,
+		Logger: logger,
 	}, nil
 }
 
@@ -167,11 +165,11 @@ func (s *server) validateDeviceToken(r *http.Request) (claims jwt.MapClaims, ok 
 	t := time.Now()
 	defer validationTime.Observe(time.Since(t).Seconds())
 
-	jwtB64, err :=request.AuthorizationHeaderExtractor.ExtractToken(r);
-	if err !=nil{
+	jwtB64, err := request.AuthorizationHeaderExtractor.ExtractToken(r)
+	if err != nil {
 		s.Logger.Debugw("Failed to extract token from Autorization header", "err", err)
 	}
-	token, err := jwt.Parse(jwtB64, s.Jwks.KeyFunc)
+	token, err := jwt.Parse(jwtB64, s.Jwks.Keyfunc)
 
 	if err != nil {
 		s.Logger.Debugw("Failed to parse token", "err", err)
@@ -193,7 +191,6 @@ func (s *server) validateDeviceToken(r *http.Request) (claims jwt.MapClaims, ok 
 	}
 	return token.Claims.(jwt.MapClaims), true
 }
-
 
 func (s *server) queryStringClaimValidator(claims jwt.MapClaims, r *http.Request) bool {
 	validClaims := r.URL.Query()
@@ -236,37 +233,37 @@ func (s *server) checkClaim(
 	claimObj := claims[claimName]
 
 	switch claimVal := claimObj.(type) {
-		case string:
-			if !contains(validPatterns, claimVal, isRegExp) {
-					passedValidation = false
-			}
-		case []interface{}:
-			//short exit if there are restrictions on claim but no claims exist
-			if(len(claimVal) == 0 && len(validPatterns) > 0){
-				passedValidation = false
-			}
-			// fill an actualClaims[] from  interface[]
-			actualClaims := make([]string, len(claimVal))
-			for i, e := range claimVal {					
-			 	claim := e.(string)
-			 	actualClaims[i] = claim;
-			}
-			for _,validPattern := range validPatterns{
-				passedValidation = false
-				out:
-				for _,actualClaim := range actualClaims{
-					if  contains( []string{validPattern}, actualClaim, isRegExp) {
-						passedValidation = true
-						break out;
-					}
-				}
-				if(!passedValidation) {
-					break;
+	case string:
+		if !contains(validPatterns, claimVal, isRegExp) {
+			passedValidation = false
+		}
+	case []interface{}:
+		//short exit if there are restrictions on claim but no claims exist
+		if len(claimVal) == 0 && len(validPatterns) > 0 {
+			passedValidation = false
+		}
+		// fill an actualClaims[] from  interface[]
+		actualClaims := make([]string, len(claimVal))
+		for i, e := range claimVal {
+			claim := e.(string)
+			actualClaims[i] = claim
+		}
+		for _, validPattern := range validPatterns {
+			passedValidation = false
+		out:
+			for _, actualClaim := range actualClaims {
+				if contains([]string{validPattern}, actualClaim, isRegExp) {
+					passedValidation = true
+					break out
 				}
 			}
-		default:
-			fmt.Errorf("I don't know how to handle claim object %T\n", claimObj)
-			passedValidation = false;
+			if !passedValidation {
+				break
+			}
+		}
+	default:
+		fmt.Errorf("I don't know how to handle claim object %T\n", claimObj)
+		passedValidation = false
 	}
 
 	return passedValidation
@@ -314,7 +311,7 @@ func contains(haystack []string, needle string, isRegExp bool) bool {
 		if isRegExp == true {
 			matched, err := regexpcache.MatchString(validPattern, needle)
 			if err != nil {
-				fmt.Errorf("unable to compile pattern %v to match claim %v , error %v\n", validPattern,needle,err)
+				fmt.Errorf("unable to compile pattern %v to match claim %v , error %v\n", validPattern, needle, err)
 			}
 			if matched {
 				return true
