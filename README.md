@@ -28,13 +28,13 @@ If no claims are passed in this mode, the request will be denied.
 To use with the NGINX Ingress Controller, first create a deployment and a service for this endpoint. See the [kubernetes/](kubernetes/) directory for example manifests. Then on the ingress object you wish to authenticate, add this annotation for a server in static claims source mode:
 
 ```yaml
-nginx.ingress.kubernetes.io/auth-url: http://nginx-subrequest-auth-jwt.default.svc.cluster.local/validate
+nginx.ingress.kubernetes.io/auth-url: http://token-validator.default.svc.cluster.local/validate
 ```
 
 Or, in query string mode:
 
 ```yaml
-nginx.ingress.kubernetes.io/auth-url: http://nginx-subrequest-auth-jwt.default.svc.cluster.local/validate?claims_group=developers
+nginx.ingress.kubernetes.io/auth-url: http://token-validator.default.svc.cluster.local/validate?claims_group=developers
 ```
 
 Change the url to match the name of the service and namespace you chose when deploying. All requests will now have their JWTs validated before getting passed to the upstream service.
