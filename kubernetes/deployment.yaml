@@ -1,0 +1,43 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: token-validator
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: token-validator
+  replicas: 2
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: token-validator
+    spec:
+      containers:
+        - name: token-validator
+          image: ghcr.io/robbilie/nginx-jwt-auth:0.0.4
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+          env:
+            - name: PORT
+              value: "8080"
+            - name: JWKS_URL
+              value: "https://keycloak.keycloak:8443/realms/master/protocol/openid-connect/certs"
+            - name: LOG_LEVEL
+              value: "debug"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: token-validator
+  labels:
+    app.kubernetes.io/name: token-validator
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: token-validator
+  ports:
+    - port: 80
+      targetPort: 8080
+      protocol: TCP
+      name: http
