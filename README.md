@@ -12,7 +12,7 @@ It validates a JWT token passed in the `Authorization` header against a configur
 
 # Configuration
 
-There are currently 2 environment variables, JWKS_URL and PORT. Everything else should be configured using the query string.
+There are currently 2 environment variables, JWKS_URL (supports a comma separated list of urls for multi jwks) and PORT. Everything else should be configured using the query string.
 
 ### Query string
 In query string mode, the allowed claims are passed via query string parameters to the /validate endpoint. For example, with `/validate?claims_group=developers&claims_group=administrators&claims_location=hq`, the token claims must **both** have a `group` claim of **either** `developers` or `administrators`, **and** a `location` claim of `hq`.
