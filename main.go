@@ -79,30 +79,44 @@ func main() {
 }
 
 type server struct {
-	Jwks   keyfunc.MultipleJWKS
-	Logger logger.Logger
+	Keyfunc jwt.Keyfunc
+	Logger  logger.Logger
 }
 
 func newServer(logger logger.Logger, jwksUrl string) (*server, error) {
 	m := map[string]keyfunc.Options{}
 	s := strings.Split(jwksUrl, ",")
-	for _, url := range s {
-		m[url] = keyfunc.Options{
+	var kf jwt.Keyfunc
+	if len(s) == 1 {
+		jwks, err := keyfunc.Get(s[0], keyfunc.Options{
 			RefreshInterval: time.Hour,
 			RefreshErrorHandler: func(err error) {
 				log.Printf("There was an error with the jwt.KeyFunc\nError: %s", err.Error())
 			},
+		})
+		if err != nil {
+			return nil, fmt.Errorf("failed to create JWKS from resource at the given URL.\nError: %s", err.Error())
 		}
-	}
-	jwks, err := keyfunc.GetMultiple(m, keyfunc.MultipleOptions{})
-	if err != nil {
-
-		return nil, fmt.Errorf("failed to create JWKS from resource at the given URL.\nError: %s", err.Error())
+		kf = jwks.Keyfunc
+	} else {
+		for _, url := range s {
+			m[url] = keyfunc.Options{
+				RefreshInterval: time.Hour,
+				RefreshErrorHandler: func(err error) {
+					log.Printf("There was an error with the jwt.KeyFunc\nError: %s", err.Error())
+				},
+			}
+		}
+		jwks, err := keyfunc.GetMultiple(m, keyfunc.MultipleOptions{})
+		if err != nil {
+			return nil, fmt.Errorf("failed to create JWKS from resource at the given URL.\nError: %s", err.Error())
+		}
+		kf = jwks.Keyfunc
 	}
 
 	return &server{
-		Jwks:   *jwks,
-		Logger: logger,
+		Keyfunc: kf,
+		Logger:  logger,
 	}, nil
 }
 
@@ -169,7 +183,7 @@ func (s *server) validateDeviceToken(r *http.Request) (claims jwt.MapClaims, ok 
 	if err != nil {
 		s.Logger.Debugw("Failed to extract token from Autorization header", "err", err)
 	}
-	token, err := jwt.Parse(jwtB64, s.Jwks.Keyfunc)
+	token, err := jwt.Parse(jwtB64, s.Keyfunc)
 
 	if err != nil {
 		s.Logger.Debugw("Failed to parse token", "err", err)
