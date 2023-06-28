@@ -262,10 +262,10 @@ func (s *server) checkClaim(
 			claim := e.(string)
 			actualClaims[i] = claim
 		}
-		for _, validPattern := range validPatterns {
+		for _, actualClaim := range actualClaims {
 			passedValidation = false
 		out:
-			for _, actualClaim := range actualClaims {
+			for _, validPattern := range validPatterns {
 				if contains([]string{validPattern}, actualClaim, isRegExp) {
 					passedValidation = true
 					break out
