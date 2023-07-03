@@ -242,19 +242,17 @@ func (s *server) queryStringClaimValidator(claims jwt.MapClaims, r *http.Request
 func (s *server) checkClaim(
 	claimName string, validPatterns []string, claims jwt.MapClaims, isRegExp bool,
 ) bool {
-	passedValidation := true
-
 	claimObj := claims[claimName]
 
 	switch claimVal := claimObj.(type) {
 	case string:
-		if !contains(validPatterns, claimVal, isRegExp) {
-			passedValidation = false
+		if contains(validPatterns, claimVal, isRegExp) {
+			return true
 		}
 	case []interface{}:
 		//short exit if there are restrictions on claim but no claims exist
 		if len(claimVal) == 0 && len(validPatterns) > 0 {
-			passedValidation = false
+			return false
 		}
 		// fill an actualClaims[] from  interface[]
 		actualClaims := make([]string, len(claimVal))
@@ -263,24 +261,18 @@ func (s *server) checkClaim(
 			actualClaims[i] = claim
 		}
 		for _, actualClaim := range actualClaims {
-			passedValidation = false
-		out:
 			for _, validPattern := range validPatterns {
 				if contains([]string{validPattern}, actualClaim, isRegExp) {
-					passedValidation = true
-					break out
+					return true
 				}
-			}
-			if !passedValidation {
-				break
 			}
 		}
 	default:
 		fmt.Errorf("I don't know how to handle claim object %T\n", claimObj)
-		passedValidation = false
+		return false
 	}
 
-	return passedValidation
+	return false
 }
 
 func (s *server) writeResponseHeaders(
