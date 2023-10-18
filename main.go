@@ -231,7 +231,7 @@ func (s *server) queryStringClaimValidator(claims jwt.MapClaims, r *http.Request
 		s.Logger.Warnw("No claims requirements set, rejecting", "queryParams", validClaims)
 		return false
 	}
-	s.Logger.Debugw("Validating claims from query string", "validClaims", validClaims)
+	s.Logger.Debugw("Validating claims from query string", "validClaims", validClaims, "actualClaims", claims)
 
 	for claimNameQ, validPatterns := range validClaims {
 		if strings.HasPrefix(claimNameQ, "claims_") {
@@ -244,7 +244,7 @@ func (s *server) queryStringClaimValidator(claims jwt.MapClaims, r *http.Request
 				isRegExp = true
 			}
 			if !s.checkClaim(claimName, validPatterns, claims, isRegExp) {
-				s.Logger.Debugw("Token claims did not match required values", "validClaims", validClaims, "actualClaims", claims)
+				s.Logger.Debugw("Token claims did not match required values")
 				return false
 			}
 		}
