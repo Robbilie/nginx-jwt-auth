@@ -59,7 +59,7 @@ func main() {
 		return
 	}
 
-	server, err := newServer(logger, jwksUrl)
+	server, err := newServer(logger, jwksUrl, getenv("COOKIE_NAME", ""))
 	if err != nil {
 		logger.Fatalw("Couldn't initialize server", "err", err)
 	}
@@ -79,11 +79,12 @@ func main() {
 }
 
 type server struct {
-	Keyfunc jwt.Keyfunc
-	Logger  logger.Logger
+	Keyfunc    jwt.Keyfunc
+	Logger     logger.Logger
+	CookieName string
 }
 
-func newServer(logger logger.Logger, jwksUrl string) (*server, error) {
+func newServer(logger logger.Logger, jwksUrl string, cookieName string) (*server, error) {
 	m := map[string]keyfunc.Options{}
 	s := strings.Split(jwksUrl, ",")
 	var kf jwt.Keyfunc
@@ -115,8 +116,9 @@ func newServer(logger logger.Logger, jwksUrl string) (*server, error) {
 	}
 
 	return &server{
-		Keyfunc: kf,
-		Logger:  logger,
+		Keyfunc:    kf,
+		Logger:     logger,
+		CookieName: cookieName,
 	}, nil
 }
 
@@ -181,8 +183,19 @@ func (s *server) validateDeviceToken(r *http.Request) (claims jwt.MapClaims, ok 
 
 	jwtB64, err := request.AuthorizationHeaderExtractor.ExtractToken(r)
 	if err != nil {
-		s.Logger.Debugw("Failed to extract token from Autorization header", "err", err)
+		if s.CookieName == "" {
+			s.Logger.Debugw("Failed to extract token from Authorization header", "err", err)
+			return nil, false
+		} else {
+			cookie, err := r.Cookie(s.CookieName)
+			if err != nil {
+				s.Logger.Debugw("Failed to extract token from cookie", "err", err)
+				return nil, false
+			}
+			jwtB64 = cookie.Value
+		}
 	}
+
 	token, err := jwt.Parse(jwtB64, s.Keyfunc)
 
 	if err != nil {
