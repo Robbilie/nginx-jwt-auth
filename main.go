@@ -2,7 +2,9 @@ package main
 
 import (
 	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
+	"encoding/pem"
 	"fmt"
 	"log"
 	"net/http"
@@ -46,79 +48,100 @@ func init() {
 }
 
 func main() {
-	logger := logger.NewLogger(getenv("LOG_LEVEL", "info")) // "debug", "info", "warn", "error", "fatal"
+	ll := logger.NewLogger(getenv("LOG_LEVEL", "info")) // "debug", "info", "warn", "error", "fatal"
 
 	insecureSkipVerify := getenv("INSECURE_SKIP_VERIFY", "false")
 	if insecureSkipVerify == "true" {
 		http.DefaultTransport.(*http.Transport).TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
 	}
 
-	jwksUrl := getenv("JWKS_URL", "error")
-	if jwksUrl == "error" {
-		logger.Fatalw("no JWKS_URL")
+	jwksPath := getenv("JWKS_PATH", "")
+	jwksUrl := getenv("JWKS_URL", "")
+	if jwksUrl == "" && jwksPath == "" {
+		ll.Fatalw("no JWKS_URL or JWKS_PATH")
 		return
 	}
 
-	server, err := newServer(logger, jwksUrl, getenv("COOKIE_NAME", ""))
+	server, err := newServer(ll, jwksPath, jwksUrl, getenv("COOKIE_NAME", ""), getenv("ALLOW_NO_QUERY_REQUIREMENTS", "false") == "true")
 	if err != nil {
-		logger.Fatalw("Couldn't initialize server", "err", err)
+		ll.Fatalw("Couldn't initialize server", "err", err)
 	}
 
 	http.Handle("/metrics", promhttp.Handler())
 	http.HandleFunc("/validate", server.validate)
-	http.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) { fmt.Fprint(w, "OK") })
+	http.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) { _, _ = fmt.Fprint(w, "OK") })
 
 	bindAddr := ":" + getenv("PORT", "8080")
 
-	logger.Infow("Starting server", "addr", bindAddr)
+	ll.Infow("Starting server", "addr", bindAddr)
 	err = http.ListenAndServe(bindAddr, nil)
 
 	if err != nil {
-		logger.Fatalw("Error running server", "err", err)
+		ll.Fatalw("Error running server", "err", err)
 	}
 }
 
 type server struct {
-	Keyfunc    jwt.Keyfunc
-	Logger     logger.Logger
-	CookieName string
+	Keyfunc                  jwt.Keyfunc
+	Logger                   logger.Logger
+	CookieName               string
+	AllowNoQueryRequirements bool
 }
 
-func newServer(logger logger.Logger, jwksUrl string, cookieName string) (*server, error) {
-	m := map[string]keyfunc.Options{}
-	s := strings.Split(jwksUrl, ",")
+func newServer(logger logger.Logger, jwksPath string, jwksUrl string, cookieName string, allowNoQueryRequirements bool) (*server, error) {
 	var kf jwt.Keyfunc
-	if len(s) == 1 {
-		jwks, err := keyfunc.Get(s[0], keyfunc.Options{
-			RefreshInterval: time.Hour,
-			RefreshErrorHandler: func(err error) {
-				log.Printf("There was an error with the jwt.KeyFunc\nError: %s", err.Error())
-			},
-		})
+	if jwksPath != "" {
+		keyBytes, err := os.ReadFile(jwksPath)
 		if err != nil {
-			return nil, fmt.Errorf("failed to create JWKS from resource at the given URL.\nError: %s", err.Error())
+			return nil, fmt.Errorf("couldn't read public key from file: %s. Error: %s", jwksPath, err.Error())
 		}
-		kf = jwks.Keyfunc
+		block, _ := pem.Decode(keyBytes)
+		if block == nil {
+			return nil, fmt.Errorf("failed to parse PEM block containing the public key")
+		}
+		pubKey, err := x509.ParsePKIXPublicKey(block.Bytes)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse public key: %s", err.Error())
+		}
+		kf = func(token *jwt.Token) (interface{}, error) {
+			return pubKey, nil
+		}
 	} else {
-		for _, url := range s {
-			m[url] = keyfunc.Options{
+		s := strings.Split(jwksUrl, ",")
+		if len(s) == 1 {
+			jwks, err := keyfunc.Get(s[0], keyfunc.Options{
 				RefreshInterval: time.Hour,
 				RefreshErrorHandler: func(err error) {
 					log.Printf("There was an error with the jwt.KeyFunc\nError: %s", err.Error())
 				},
+			})
+			if err != nil {
+				return nil, fmt.Errorf("failed to create JWKS from resource at the given URL.\nError: %s", err.Error())
 			}
+			kf = jwks.Keyfunc
+		} else {
+			m := map[string]keyfunc.Options{}
+			for _, url := range s {
+				m[url] = keyfunc.Options{
+					RefreshInterval: time.Hour,
+					RefreshErrorHandler: func(err error) {
+						log.Printf("There was an error with the jwt.KeyFunc\nError: %s", err.Error())
+					},
+				}
+			}
+			jwks, err := keyfunc.GetMultiple(m, keyfunc.MultipleOptions{})
+			if err != nil {
+				return nil, fmt.Errorf("failed to create JWKS from resource at the given URL.\nError: %s", err.Error())
+			}
+			kf = jwks.Keyfunc
 		}
-		jwks, err := keyfunc.GetMultiple(m, keyfunc.MultipleOptions{})
-		if err != nil {
-			return nil, fmt.Errorf("failed to create JWKS from resource at the given URL.\nError: %s", err.Error())
-		}
-		kf = jwks.Keyfunc
 	}
 
 	return &server{
-		Keyfunc:    kf,
-		Logger:     logger,
-		CookieName: cookieName,
+		Keyfunc:                  kf,
+		Logger:                   logger,
+		CookieName:               cookieName,
+		AllowNoQueryRequirements: allowNoQueryRequirements,
 	}, nil
 }
 
@@ -228,8 +251,12 @@ func (s *server) queryStringClaimValidator(claims jwt.MapClaims, r *http.Request
 		}
 	}
 	if len(validClaims) == 0 || !hasClaimsPrefixedKey {
-		s.Logger.Warnw("No claims requirements set, rejecting", "queryParams", validClaims)
-		return false
+		if s.AllowNoQueryRequirements {
+			return true
+		} else {
+			s.Logger.Warnw("No claims requirements set, rejecting", "queryParams", validClaims)
+			return false
+		}
 	}
 	s.Logger.Debugw("Validating claims from query string", "validClaims", validClaims, "actualClaims", claims)
 
@@ -281,7 +308,7 @@ func (s *server) checkClaim(
 			}
 		}
 	default:
-		fmt.Errorf("I don't know how to handle claim object %T\n", claimObj)
+		s.Logger.Errorw("don't know how to handle claim object", claimObj)
 		return false
 	}
 
@@ -330,7 +357,7 @@ func contains(haystack []string, needle string, isRegExp bool) bool {
 		if isRegExp == true {
 			matched, err := regexpcache.MatchString(validPattern, needle)
 			if err != nil {
-				fmt.Errorf("unable to compile pattern %v to match claim %v , error %v\n", validPattern, needle, err)
+				_ = fmt.Errorf("unable to compile pattern %v to match claim %v , error %v\n", validPattern, needle, err)
 			}
 			if matched {
 				return true
