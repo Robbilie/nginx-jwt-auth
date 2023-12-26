@@ -26,11 +26,7 @@ jobs:
     steps:
       - name: REGISTRY_IMAGE
         run: |
-          IMAGE_ID=ghcr.io/${{ github.repository }}
-          # Change all uppercase to lowercase
-          IMAGE_ID=$(echo $IMAGE_ID | tr '[A-Z]' '[a-z]')
-          echo IMAGE_ID=$IMAGE_ID
-          echo "REGISTRY_IMAGE=$IMAGE_ID" >>${GITHUB_ENV}
+          echo "REGISTRY_IMAGE=${GITHUB_REPOSITORY,,}" >>${GITHUB_ENV}
       - name: Checkout
         uses: actions/checkout@v4
       - name: Docker meta
@@ -38,6 +34,9 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: ${{ env.REGISTRY_IMAGE }}
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=semver,pattern={{version}}
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
       - name: Set up Docker Buildx
@@ -77,18 +76,7 @@ jobs:
     steps:
       - name: REGISTRY_IMAGE
         run: |
-          IMAGE_ID=ghcr.io/${{ github.repository }}
-          # Change all uppercase to lowercase
-          IMAGE_ID=$(echo $IMAGE_ID | tr '[A-Z]' '[a-z]')
-          # Strip git ref prefix from version
-          VERSION=$(echo "${{ github.ref }}" | sed -e 's,.*/\(.*\),\1,')
-          # Strip "v" prefix from tag name
-          [[ "${{ github.ref }}" == "refs/tags/"* ]] && VERSION=$(echo $VERSION | sed -e 's/^v//')
-          # Use Docker `latest` tag convention
-          [ "$VERSION" == "main" ] && VERSION=latest
-          echo IMAGE_ID=$IMAGE_ID
-          echo VERSION=$VERSION
-          echo "REGISTRY_IMAGE=$IMAGE_ID:$VERSION" >>${GITHUB_ENV}
+          echo "REGISTRY_IMAGE=${GITHUB_REPOSITORY,,}" >>${GITHUB_ENV}
       - name: Download digests
         uses: actions/download-artifact@v3
         with:
@@ -101,6 +89,9 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: ${{ env.REGISTRY_IMAGE }}
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=semver,pattern={{version}}
       - name: GitHub Container Registry
         uses: docker/login-action@v3
         with:
