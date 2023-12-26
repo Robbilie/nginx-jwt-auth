@@ -26,7 +26,7 @@ jobs:
     steps:
       - name: REGISTRY_IMAGE
         run: |
-          echo "REGISTRY_IMAGE=${GITHUB_REPOSITORY,,}" >>${GITHUB_ENV}
+          echo "REGISTRY_IMAGE=ghcr.io/${GITHUB_REPOSITORY,,}" >>${GITHUB_ENV}
       - name: Checkout
         uses: actions/checkout@v4
       - name: Docker meta
@@ -76,7 +76,7 @@ jobs:
     steps:
       - name: REGISTRY_IMAGE
         run: |
-          echo "REGISTRY_IMAGE=${GITHUB_REPOSITORY,,}" >>${GITHUB_ENV}
+          echo "REGISTRY_IMAGE=ghcr.io/${GITHUB_REPOSITORY,,}" >>${GITHUB_ENV}
       - name: Download digests
         uses: actions/download-artifact@v3
         with:
