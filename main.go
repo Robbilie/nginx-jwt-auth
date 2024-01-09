@@ -178,11 +178,11 @@ func (s *server) validate(rw http.ResponseWriter, r *http.Request) {
 			requestsTotal.WithLabelValues("500").Inc()
 			w.WriteHeader(http.StatusInternalServerError)
 		}
-		s.Logger.Debugw("Handled validation request", "url", r.URL, "status", w.status, "method", r.Method, "userAgent", r.UserAgent())
+		s.Logger.Debugw("Handled validation request", "url", r.URL, "status", w.status, "method", r.Method, "userAgent", r.UserAgent(), "x-request-id", r.Header.Get("x-request-id"))
 	}()
 
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
-		s.Logger.Infow("Invalid method", "method", r.Method)
+		s.Logger.Infow("Invalid method", "method", r.Method, "x-request-id", r.Header.Get("x-request-id"))
 		requestsTotal.WithLabelValues("405").Inc()
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		return
@@ -207,12 +207,12 @@ func (s *server) validateDeviceToken(r *http.Request) (claims jwt.MapClaims, ok 
 	jwtB64, err := request.AuthorizationHeaderExtractor.ExtractToken(r)
 	if err != nil {
 		if s.CookieName == "" {
-			s.Logger.Debugw("Failed to extract token from Authorization header", "err", err)
+			s.Logger.Debugw("Failed to extract token from Authorization header", "err", err, "x-request-id", r.Header.Get("x-request-id"))
 			return nil, false
 		} else {
 			cookie, err := r.Cookie(s.CookieName)
 			if err != nil {
-				s.Logger.Debugw("Failed to extract token from cookie", "err", err)
+				s.Logger.Debugw("Failed to extract token from cookie", "err", err, "x-request-id", r.Header.Get("x-request-id"))
 				return nil, false
 			}
 			jwtB64 = cookie.Value
@@ -222,15 +222,15 @@ func (s *server) validateDeviceToken(r *http.Request) (claims jwt.MapClaims, ok 
 	token, err := jwt.Parse(jwtB64, s.Keyfunc)
 
 	if err != nil {
-		s.Logger.Debugw("Failed to parse token", "err", err)
+		s.Logger.Debugw("Failed to parse token", "err", err, "x-request-id", r.Header.Get("x-request-id"))
 		return nil, false
 	}
 	if !token.Valid {
-		s.Logger.Debugw("Invalid token", "token", token.Raw)
+		s.Logger.Debugw("Invalid token", "token", token.Raw, "x-request-id", r.Header.Get("x-request-id"))
 		return nil, false
 	}
 	if err := token.Claims.Valid(); err != nil {
-		s.Logger.Debugw("Got invalid claims", "err", err)
+		s.Logger.Debugw("Got invalid claims", "err", err, "x-request-id", r.Header.Get("x-request-id"))
 		return nil, false
 	}
 
@@ -254,24 +254,24 @@ func (s *server) queryStringClaimValidator(claims jwt.MapClaims, r *http.Request
 		if s.AllowNoQueryRequirements {
 			return true
 		} else {
-			s.Logger.Warnw("No claims requirements set, rejecting", "queryParams", validClaims)
+			s.Logger.Warnw("No claims requirements set, rejecting", "queryParams", validClaims, "x-request-id", r.Header.Get("x-request-id"))
 			return false
 		}
 	}
-	s.Logger.Debugw("Validating claims from query string", "validClaims", validClaims, "actualClaims", claims)
+	s.Logger.Debugw("Validating claims from query string", "validClaims", validClaims, "actualClaims", claims, "x-request-id", r.Header.Get("x-request-id"))
 
 	for claimNameQ, validPatterns := range validClaims {
 		if strings.HasPrefix(claimNameQ, "claims_") {
 			claimName := strings.TrimPrefix(claimNameQ, "claims_")
 			s.Logger.Debugw("CLAIM", "claim", claimName, "vv", validPatterns,
-				"qd", validClaims)
+				"qd", validClaims, "x-request-id", r.Header.Get("x-request-id"))
 			isRegExp := false
 			if strings.HasPrefix(claimName, "regexp_") {
 				claimName = strings.TrimPrefix(claimName, "regexp_")
 				isRegExp = true
 			}
 			if !s.checkClaim(claimName, validPatterns, claims, isRegExp) {
-				s.Logger.Debugw("Token claims did not match required values")
+				s.Logger.Debugw("Token claims did not match required values", "x-request-id", r.Header.Get("x-request-id"))
 				return false
 			}
 		}
@@ -327,7 +327,7 @@ func (s *server) writeResponseHeaders(
 			responseHeaders[header] = value[0]
 		}
 	}
-	s.Logger.Debugw("responseHeaders", "rh", responseHeaders)
+	s.Logger.Debugw("responseHeaders", "rh", responseHeaders, "x-request-id", r.Header.Get("x-request-id"))
 	if responseHeaders == nil {
 		return
 	}
@@ -347,7 +347,7 @@ func (s *server) writeResponseHeaders(
 			}
 		}
 		encClaim := string(toClaim)
-		s.Logger.Debugw("add response header", "header", header, "claim", claim, "encClaim", encClaim)
+		s.Logger.Debugw("add response header", "header", header, "claim", claim, "encClaim", encClaim, "x-request-id", r.Header.Get("x-request-id"))
 		w.Header().Add(header, encClaim)
 	}
 }
