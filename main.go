@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
-	"log"
 	"net/http"
 	"os"
 	"strings"
@@ -14,9 +13,9 @@ import (
 
 	"github.com/robbilie/nginx-jwt-auth/logger"
 
-	"github.com/MicahParks/keyfunc"
-	"github.com/golang-jwt/jwt/v4"
-	"github.com/golang-jwt/jwt/v4/request"
+	"github.com/MicahParks/keyfunc/v3"
+	"github.com/golang-jwt/jwt/v5"
+	"github.com/golang-jwt/jwt/v5/request"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -108,33 +107,11 @@ func newServer(logger logger.Logger, jwksPath string, jwksUrl string, cookieName
 		}
 	} else {
 		s := strings.Split(jwksUrl, ",")
-		if len(s) == 1 {
-			jwks, err := keyfunc.Get(s[0], keyfunc.Options{
-				RefreshInterval: time.Hour,
-				RefreshErrorHandler: func(err error) {
-					log.Printf("There was an error with the jwt.KeyFunc\nError: %s", err.Error())
-				},
-			})
-			if err != nil {
-				return nil, fmt.Errorf("failed to create JWKS from resource at the given URL.\nError: %s", err.Error())
-			}
-			kf = jwks.Keyfunc
-		} else {
-			m := map[string]keyfunc.Options{}
-			for _, url := range s {
-				m[url] = keyfunc.Options{
-					RefreshInterval: time.Hour,
-					RefreshErrorHandler: func(err error) {
-						log.Printf("There was an error with the jwt.KeyFunc\nError: %s", err.Error())
-					},
-				}
-			}
-			jwks, err := keyfunc.GetMultiple(m, keyfunc.MultipleOptions{})
-			if err != nil {
-				return nil, fmt.Errorf("failed to create JWKS from resource at the given URL.\nError: %s", err.Error())
-			}
-			kf = jwks.Keyfunc
+		jwks, err := keyfunc.NewDefault(s)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create JWKS from resource at the given URL.\nError: %s", err.Error())
 		}
+		kf = jwks.Keyfunc
 	}
 
 	return &server{
@@ -229,7 +206,8 @@ func (s *server) validateDeviceToken(r *http.Request) (claims jwt.MapClaims, ok 
 		s.Logger.Debugw("Invalid token", "token", token.Raw, "x-request-id", r.Header.Get("x-request-id"))
 		return nil, false
 	}
-	if err := token.Claims.Valid(); err != nil {
+
+	if err := jwt.NewValidator().Validate(token.Claims); err != nil {
 		s.Logger.Debugw("Got invalid claims", "err", err, "x-request-id", r.Header.Get("x-request-id"))
 		return nil, false
 	}
