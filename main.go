@@ -47,21 +47,40 @@ func init() {
 }
 
 func main() {
-	ll := logger.NewLogger(getenv("LOG_LEVEL", "info")) // "debug", "info", "warn", "error", "fatal"
+	ll := logger.NewLogger(getEnv("LOG_LEVEL", "info")) // "debug", "info", "warn", "error", "fatal"
 
-	insecureSkipVerify := getenv("INSECURE_SKIP_VERIFY", "false")
+	insecureSkipVerify := getEnv("INSECURE_SKIP_VERIFY", "false")
+	caCertPath := os.Getenv("CACERT_PATH")
+
+	config := &tls.Config{}
+
 	if insecureSkipVerify == "true" {
-		http.DefaultTransport.(*http.Transport).TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
+		config.InsecureSkipVerify = true
 	}
 
-	jwksPath := getenv("JWKS_PATH", "")
-	jwksUrl := getenv("JWKS_URL", "")
+	if len(caCertPath) > 0 {
+		caCertPaths := strings.Split(caCertPath, ",")
+		caCertPool := x509.NewCertPool()
+		for _, path := range caCertPaths {
+			caCert, err := os.ReadFile(path)
+			if err != nil {
+				continue
+			}
+			caCertPool.AppendCertsFromPEM(caCert)
+		}
+		config.RootCAs = caCertPool
+	}
+
+	http.DefaultTransport.(*http.Transport).TLSClientConfig = config
+
+	jwksPath := getEnv("JWKS_PATH", "")
+	jwksUrl := getEnv("JWKS_URL", "")
 	if jwksUrl == "" && jwksPath == "" {
 		ll.Fatalw("no JWKS_URL or JWKS_PATH")
 		return
 	}
 
-	server, err := newServer(ll, jwksPath, jwksUrl, getenv("COOKIE_NAME", ""), getenv("ALLOW_NO_QUERY_REQUIREMENTS", "false") == "true")
+	server, err := newServer(ll, jwksPath, jwksUrl, getEnv("COOKIE_NAME", ""), getEnv("ALLOW_NO_QUERY_REQUIREMENTS", "false") == "true")
 	if err != nil {
 		ll.Fatalw("Couldn't initialize server", "err", err)
 	}
@@ -70,7 +89,7 @@ func main() {
 	http.HandleFunc("/validate", server.validate)
 	http.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) { _, _ = fmt.Fprint(w, "OK") })
 
-	bindAddr := ":" + getenv("PORT", "8080")
+	bindAddr := ":" + getEnv("PORT", "8080")
 
 	ll.Infow("Starting server", "addr", bindAddr)
 	err = http.ListenAndServe(bindAddr, nil)
@@ -122,12 +141,11 @@ func newServer(logger logger.Logger, jwksPath string, jwksUrl string, cookieName
 	}, nil
 }
 
-func getenv(key, fallback string) string {
-	value := os.Getenv(key)
-	if len(value) == 0 {
-		return fallback
+func getEnv(key, fallback string) string {
+	if value, ok := os.LookupEnv(key); ok {
+		return value
 	}
-	return value
+	return fallback
 }
 
 type statusWriter struct {
