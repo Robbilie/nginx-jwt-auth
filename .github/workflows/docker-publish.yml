@@ -59,11 +59,15 @@ jobs:
         run: |
           mkdir -p /tmp/digests
           digest="${{ steps.build.outputs.digest }}"
-          touch "/tmp/digests/${digest#sha256:}"          
+          touch "/tmp/digests/${digest#sha256:}"
+      - name: Prepare artifact name
+        run: |
+          name=$(echo -n "${{ matrix.platform }}" | sed -e 's/[ \t:\/\\"<>|*?]/-/g' -e 's/--*/-/g')
+          echo "ARTIFACT_NAME=$name" >> $GITHUB_ENV
       - name: Upload digest
         uses: actions/upload-artifact@v4
         with:
-          name: digests-${{ matrix.platform }}
+          name: digests-${{ env.ARTIFACT_NAME }}
           path: /tmp/digests/*
           if-no-files-found: error
           retention-days: 1
@@ -76,11 +80,15 @@ jobs:
       - name: REGISTRY_IMAGE
         run: |
           echo "REGISTRY_IMAGE=ghcr.io/${GITHUB_REPOSITORY,,}" >>${GITHUB_ENV}
+      - name: Prepare artifact name
+        run: |
+          name=$(echo -n "${{ matrix.platform }}" | sed -e 's/[ \t:\/\\"<>|*?]/-/g' -e 's/--*/-/g')
+          echo "ARTIFACT_NAME=$name" >> $GITHUB_ENV
       - name: Download digests
         uses: actions/download-artifact@v4
         with:
           path: /tmp/digests
-          pattern: digests-${{ matrix.platform }}
+          pattern: digests-${{ env.ARTIFACT_NAME }}
           merge-multiple: 'true'
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
