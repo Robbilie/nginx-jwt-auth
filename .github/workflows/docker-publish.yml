@@ -61,9 +61,9 @@ jobs:
           digest="${{ steps.build.outputs.digest }}"
           touch "/tmp/digests/${digest#sha256:}"          
       - name: Upload digest
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
-          name: digests
+          name: digests-${{ matrix.runs-on }}
           path: /tmp/digests/*
           if-no-files-found: error
           retention-days: 1
@@ -77,10 +77,11 @@ jobs:
         run: |
           echo "REGISTRY_IMAGE=ghcr.io/${GITHUB_REPOSITORY,,}" >>${GITHUB_ENV}
       - name: Download digests
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
         with:
-          name: digests
           path: /tmp/digests
+          pattern: digests-${{ matrix.runs-on }}
+          merge-multiple: 'true'
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
       - name: Docker meta
