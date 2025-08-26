@@ -210,7 +210,11 @@ func (s *server) validateDeviceToken(r *http.Request) (claims jwt.MapClaims, ok 
 				s.Logger.Debugw("Failed to extract token from cookie", "err", err, "extractErr", extractErr, "x-request-id", r.Header.Get("x-request-id"))
 				return nil, false
 			}
-			jwtB64 = cookie.Value
+			if strings.EqualFold(cookie.Value[:7], "bearer ") {
+				jwtB64 = cookie.Value[7:]
+			} else {
+				jwtB64 = cookie.Value
+			}
 		}
 	}
 
