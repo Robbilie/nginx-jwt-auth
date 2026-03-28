@@ -83,14 +83,14 @@ func main() {
 	// Optional: x5c device attestation support
 	var attestationConfig *AttestationConfig
 	x5cRootCADir := os.Getenv("X5C_ROOT_CA_DIR")
-	attestationPackages := os.Getenv("ATTESTATION_ALLOWED_PACKAGES")
-	if x5cRootCADir != "" && attestationPackages != "" {
+	attestationManifest := os.Getenv("ATTESTATION_MANIFEST")
+	if x5cRootCADir != "" && attestationManifest != "" {
 		rootCAs, err := loadRootCAsFromDir(x5cRootCADir)
 		if err != nil {
 			ll.Fatalw("Failed to load x5c root CAs", "err", err)
 			return
 		}
-		manifest, err := loadAttestationManifest(attestationPackages)
+		manifest, err := loadAttestationManifest(attestationManifest)
 		if err != nil {
 			ll.Fatalw("Failed to load attestation manifest", "err", err)
 			return

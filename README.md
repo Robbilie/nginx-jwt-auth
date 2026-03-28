@@ -27,6 +27,77 @@ JWKS_URL one or multiple comma separated urls to jwks endpoints
 
 COOKIE_NAME name of a cookie containing a jwt
 
+CACERT_PATH comma-separated list of CA certificate file paths for TLS verification
+
+## Device Attestation (x5c)
+
+This application optionally supports validating JWTs self-signed by Android devices using hardware-backed key attestation. When a JWT contains an `x5c` header with the device attestation certificate chain, the application will:
+
+1. Parse the certificate chain from the `x5c` header
+2. Verify the chain against configured root CA certificates
+3. Validate the Android key attestation extension on the leaf certificate
+4. Check the attested package name and signing certificate fingerprint against an allow list
+5. Use the leaf certificate's public key to verify the JWT signature
+
+If no `x5c` header is present, validation falls back to the standard JWKS/public key flow.
+
+### Configuration
+
+X5C_ROOT_CA_DIR directory containing PEM-encoded root CA certificate files
+
+ATTESTATION_MANIFEST path to a JSON manifest file, or an inline JSON string
+
+Both environment variables must be set to enable device attestation support.
+
+### Attestation Manifest
+
+The manifest follows the Web App Manifest `related_applications` syntax:
+
+```json
+{
+  "related_applications": [
+    {
+      "id": "com.example.myapp",
+      "min_version": "10",
+      "fingerprints": [
+        {
+          "type": "sha256_cert",
+          "value": "92:5E:D1:AB:CF:01:23:45:67:89:AB:CD:EF:01:23:45:67:89:AB:CD:EF:01:23:45:67:89:AB:CD:EF:01:23:45"
+        }
+      ]
+    }
+  ]
+}
+```
+
+- `id` - the Android application package name
+- `min_version` - (optional) minimum version code of the application
+- `fingerprints` - list of allowed signing certificate fingerprints
+  - `type` - must be `sha256_cert`
+  - `value` - colon-separated uppercase hex SHA-256 digest of the signing certificate
+
+A single package can have multiple fingerprint entries to support different signing keys (e.g. debug, release, different integrations).
+
+### Kubernetes Deployment
+
+Mount the root CA certificates and attestation manifest as ConfigMaps:
+
+```yaml
+env:
+  - name: X5C_ROOT_CA_DIR
+    value: /etc/attestation/root-cas
+  - name: ATTESTATION_MANIFEST
+    value: /etc/attestation/manifest.json
+volumeMounts:
+  - name: attestation-root-cas
+    mountPath: /etc/attestation/root-cas
+    readOnly: true
+  - name: attestation-manifest
+    mountPath: /etc/attestation/manifest.json
+    subPath: manifest.json
+    readOnly: true
+```
+
 ### Query string
 In query string mode, the allowed claims are passed via query string parameters to the /validate endpoint. For example, with `/validate?claims_group=developers&claims_group=administrators&claims_location=hq`, the token claims must **both** have a `group` claim of **either** `developers` or `administrators`, **and** a `location` claim of `hq`.
 
