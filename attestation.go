@@ -16,16 +16,30 @@ import (
 	"github.com/robbilie/nginx-jwt-auth/logger"
 )
 
-// AllowedPackage represents an allowed Android package with its signature digests.
-type AllowedPackage struct {
-	PackageName string   `json:"packageName"`
-	Signatures  []string `json:"signatures"` // hex-encoded SHA-256 digests
+// Fingerprint represents a certificate fingerprint in the manifest format.
+type Fingerprint struct {
+	Type  string `json:"type"`
+	Value string `json:"value"` // colon-separated hex, e.g. "92:5E:D1:..."
+}
+
+// RelatedApplication represents an entry in the related_applications array,
+// following the Web App Manifest syntax.
+type RelatedApplication struct {
+	Platform     string        `json:"platform,omitempty"`
+	ID           string        `json:"id"`
+	MinVersion   string        `json:"min_version,omitempty"`
+	Fingerprints []Fingerprint `json:"fingerprints"`
+}
+
+// AttestationManifest is the top-level JSON config following Web App Manifest syntax.
+type AttestationManifest struct {
+	RelatedApplications []RelatedApplication `json:"related_applications"`
 }
 
 // AttestationConfig holds the configuration for x5c/device attestation validation.
 type AttestationConfig struct {
-	RootCAs         *x509.CertPool
-	AllowedPackages []AllowedPackage
+	RootCAs  *x509.CertPool
+	Manifest AttestationManifest
 }
 
 // loadRootCAsFromDir loads all PEM-encoded certificates from the given directory.
@@ -55,11 +69,11 @@ func loadRootCAsFromDir(dir string) (*x509.CertPool, error) {
 	return pool, nil
 }
 
-// loadAllowedPackages loads the allowed packages configuration from either a
-// JSON file path or a JSON string (env var value).
-func loadAllowedPackages(pathOrJSON string) ([]AllowedPackage, error) {
+// loadAttestationManifest loads the attestation manifest from either a
+// JSON file path or an inline JSON string (env var value).
+func loadAttestationManifest(pathOrJSON string) (AttestationManifest, error) {
 	var data []byte
-	if strings.HasPrefix(strings.TrimSpace(pathOrJSON), "[") {
+	if strings.HasPrefix(strings.TrimSpace(pathOrJSON), "{") {
 		// Treat as inline JSON
 		data = []byte(pathOrJSON)
 	} else {
@@ -67,14 +81,17 @@ func loadAllowedPackages(pathOrJSON string) ([]AllowedPackage, error) {
 		var err error
 		data, err = os.ReadFile(pathOrJSON)
 		if err != nil {
-			return nil, fmt.Errorf("failed to read allowed packages file %s: %w", pathOrJSON, err)
+			return AttestationManifest{}, fmt.Errorf("failed to read attestation manifest file %s: %w", pathOrJSON, err)
 		}
 	}
-	var packages []AllowedPackage
-	if err := json.Unmarshal(data, &packages); err != nil {
-		return nil, fmt.Errorf("failed to parse allowed packages JSON: %w", err)
+	var manifest AttestationManifest
+	if err := json.Unmarshal(data, &manifest); err != nil {
+		return AttestationManifest{}, fmt.Errorf("failed to parse attestation manifest JSON: %w", err)
 	}
-	return packages, nil
+	if len(manifest.RelatedApplications) == 0 {
+		return AttestationManifest{}, fmt.Errorf("attestation manifest contains no related_applications")
+	}
+	return manifest, nil
 }
 
 // wrapKeyfuncWithX5C returns a jwt.Keyfunc that first checks for an x5c header.
@@ -131,7 +148,7 @@ func wrapKeyfuncWithX5C(ll logger.Logger, fallback jwt.Keyfunc, config *Attestat
 		ll.Debugw("x5c certificate chain verified successfully")
 
 		// Validate the key attestation extension
-		if err := validateAttestationExtension(ll, leaf, config.AllowedPackages); err != nil {
+		if err := validateAttestationExtension(ll, leaf, config.Manifest); err != nil {
 			return nil, fmt.Errorf("attestation extension validation failed: %w", err)
 		}
 
@@ -141,8 +158,8 @@ func wrapKeyfuncWithX5C(ll logger.Logger, fallback jwt.Keyfunc, config *Attestat
 
 // validateAttestationExtension checks the Android key attestation extension on
 // the leaf certificate and verifies the package name and signature digest
-// against the allow list.
-func validateAttestationExtension(ll logger.Logger, cert *x509.Certificate, allowed []AllowedPackage) error {
+// against the manifest allow list.
+func validateAttestationExtension(ll logger.Logger, cert *x509.Certificate, manifest AttestationManifest) error {
 	ext := attestation.GetKeyExtension(cert)
 	if ext == nil {
 		return fmt.Errorf("certificate does not contain key attestation extension")
@@ -167,14 +184,14 @@ func validateAttestationExtension(ll logger.Logger, cert *x509.Certificate, allo
 		return fmt.Errorf("no signature digests in AttestationApplicationId")
 	}
 
-	// Check each package info against the allow list
+	// Check each package info against the manifest allow list
 	for _, pkg := range appID.PackageInfos {
 		for _, digest := range appID.SignatureDigests {
-			digestHex := hex.EncodeToString(digest)
-			if isPackageAllowed(pkg.PackageName, digestHex, allowed) {
+			digestColonHex := colonHex(digest)
+			if isAppAllowed(pkg.PackageName, pkg.Version, digestColonHex, manifest.RelatedApplications) {
 				ll.Debugw("Attestation package/signature matched",
 					"packageName", pkg.PackageName,
-					"signatureDigest", digestHex,
+					"signatureDigest", digestColonHex,
 				)
 				return nil
 			}
@@ -184,13 +201,33 @@ func validateAttestationExtension(ll logger.Logger, cert *x509.Certificate, allo
 	return fmt.Errorf("no matching package/signature found in allow list")
 }
 
-func isPackageAllowed(packageName string, signatureHex string, allowed []AllowedPackage) bool {
-	for _, ap := range allowed {
-		if ap.PackageName != packageName {
+// colonHex formats a byte slice as colon-separated uppercase hex (e.g. "92:5E:D1:...").
+func colonHex(b []byte) string {
+	h := strings.ToUpper(hex.EncodeToString(b))
+	parts := make([]string, 0, len(h)/2)
+	for i := 0; i < len(h); i += 2 {
+		parts = append(parts, h[i:i+2])
+	}
+	return strings.Join(parts, ":")
+}
+
+func isAppAllowed(packageName string, version int, digestColonHex string, apps []RelatedApplication) bool {
+	for _, app := range apps {
+		if app.ID != packageName {
 			continue
 		}
-		for _, sig := range ap.Signatures {
-			if strings.EqualFold(sig, signatureHex) {
+		if app.MinVersion != "" {
+			minVer := 0
+			fmt.Sscanf(app.MinVersion, "%d", &minVer)
+			if version < minVer {
+				continue
+			}
+		}
+		for _, fp := range app.Fingerprints {
+			if fp.Type != "sha256_cert" {
+				continue
+			}
+			if strings.EqualFold(fp.Value, digestColonHex) {
 				return true
 			}
 		}

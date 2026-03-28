@@ -90,16 +90,16 @@ func main() {
 			ll.Fatalw("Failed to load x5c root CAs", "err", err)
 			return
 		}
-		allowedPkgs, err := loadAllowedPackages(attestationPackages)
+		manifest, err := loadAttestationManifest(attestationPackages)
 		if err != nil {
-			ll.Fatalw("Failed to load allowed packages", "err", err)
+			ll.Fatalw("Failed to load attestation manifest", "err", err)
 			return
 		}
 		attestationConfig = &AttestationConfig{
-			RootCAs:         rootCAs,
-			AllowedPackages: allowedPkgs,
+			RootCAs:  rootCAs,
+			Manifest: manifest,
 		}
-		ll.Infow("x5c device attestation enabled", "rootCADir", x5cRootCADir, "allowedPackages", len(allowedPkgs))
+		ll.Infow("x5c device attestation enabled", "rootCADir", x5cRootCADir, "relatedApps", len(manifest.RelatedApplications))
 	}
 
 	server, err := newServer(ll, jwksPath, jwksUrl, getEnv("COOKIE_NAME", ""), getEnv("ALLOW_NO_QUERY_REQUIREMENTS", "false") == "true", attestationConfig)
