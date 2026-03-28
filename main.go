@@ -80,7 +80,29 @@ func main() {
 		return
 	}
 
-	server, err := newServer(ll, jwksPath, jwksUrl, getEnv("COOKIE_NAME", ""), getEnv("ALLOW_NO_QUERY_REQUIREMENTS", "false") == "true")
+	// Optional: x5c device attestation support
+	var attestationConfig *AttestationConfig
+	x5cRootCADir := os.Getenv("X5C_ROOT_CA_DIR")
+	attestationPackages := os.Getenv("ATTESTATION_ALLOWED_PACKAGES")
+	if x5cRootCADir != "" && attestationPackages != "" {
+		rootCAs, err := loadRootCAsFromDir(x5cRootCADir)
+		if err != nil {
+			ll.Fatalw("Failed to load x5c root CAs", "err", err)
+			return
+		}
+		allowedPkgs, err := loadAllowedPackages(attestationPackages)
+		if err != nil {
+			ll.Fatalw("Failed to load allowed packages", "err", err)
+			return
+		}
+		attestationConfig = &AttestationConfig{
+			RootCAs:         rootCAs,
+			AllowedPackages: allowedPkgs,
+		}
+		ll.Infow("x5c device attestation enabled", "rootCADir", x5cRootCADir, "allowedPackages", len(allowedPkgs))
+	}
+
+	server, err := newServer(ll, jwksPath, jwksUrl, getEnv("COOKIE_NAME", ""), getEnv("ALLOW_NO_QUERY_REQUIREMENTS", "false") == "true", attestationConfig)
 	if err != nil {
 		ll.Fatalw("Couldn't initialize server", "err", err)
 	}
@@ -106,7 +128,7 @@ type server struct {
 	AllowNoQueryRequirements bool
 }
 
-func newServer(logger logger.Logger, jwksPath string, jwksUrl string, cookieName string, allowNoQueryRequirements bool) (*server, error) {
+func newServer(logger logger.Logger, jwksPath string, jwksUrl string, cookieName string, allowNoQueryRequirements bool, attestationConfig *AttestationConfig) (*server, error) {
 	var kf jwt.Keyfunc
 	if jwksPath != "" {
 		keyBytes, err := os.ReadFile(jwksPath)
@@ -131,6 +153,11 @@ func newServer(logger logger.Logger, jwksPath string, jwksUrl string, cookieName
 			return nil, fmt.Errorf("failed to create JWKS from resource at the given URL.\nError: %s", err.Error())
 		}
 		kf = jwks.Keyfunc
+	}
+
+	// Wrap keyfunc with x5c attestation support if configured
+	if attestationConfig != nil {
+		kf = wrapKeyfuncWithX5C(logger, kf, attestationConfig)
 	}
 
 	return &server{
