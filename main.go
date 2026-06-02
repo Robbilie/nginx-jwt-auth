@@ -7,6 +7,7 @@ import (
 	"encoding/pem"
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -210,10 +211,18 @@ func (s *server) validateDeviceToken(r *http.Request) (claims jwt.MapClaims, ok 
 				s.Logger.Debugw("Failed to extract token from cookie", "err", err, "extractErr", extractErr, "x-request-id", r.Header.Get("x-request-id"))
 				return nil, false
 			}
-			if strings.EqualFold(cookie.Value[:7], "bearer ") {
-				jwtB64 = cookie.Value[7:]
+			// HTTP clients may URL-encode cookie values (e.g. JS's
+			// encodeURIComponent encodes a space as %20), so decode before
+			// stripping any "bearer " prefix. Fall back to the raw value if
+			// the cookie is not percent-encoded.
+			value := cookie.Value
+			if decoded, decodeErr := url.PathUnescape(value); decodeErr == nil {
+				value = decoded
+			}
+			if len(value) >= 7 && strings.EqualFold(value[:7], "bearer ") {
+				jwtB64 = value[7:]
 			} else {
-				jwtB64 = cookie.Value
+				jwtB64 = value
 			}
 		}
 	}
